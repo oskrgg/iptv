@@ -6,9 +6,11 @@ import { Logger, Collection } from '@freearhey/core'
 import { Storage } from '@freearhey/storage-js'
 import { PlaylistParser } from '../../core'
 import * as sdk from '@iptv-org/sdk'
+import { sortStreams } from '../../core/sortStreams'
 
 const processedIssues = new Collection<Issue>()
 const skippedIssues = new Collection<Issue>()
+const changedFiles = new Set<string>()
 const logger = new Logger({ level: 5 })
 
 let streams = new Collection<Stream>()
@@ -67,8 +69,9 @@ async function saveStreams() {
   for (const filepath of groupedStreams.keys()) {
     let filteredStreams = new Collection<Stream>(groupedStreams.get(filepath))
     filteredStreams = filteredStreams.filter((stream: Stream) => stream.removed === false)
+    if (changedFiles.has(filepath)) filteredStreams = sortStreams(filteredStreams)
 
-    const playlist = new Playlist(filteredStreams, { public: false })
+    const playlist = new Playlist(filteredStreams, { public: false, raw: true })
     await streamsStorage.save(filepath, playlist.toString())
   }
 }
@@ -109,7 +112,7 @@ async function removeStream(issue: Issue) {
   const log = createThread(issue, 'streams/remove')
   log.start()
 
-  const data = issue.data
+  const data = issue.dataSet
   if (data.missing('stream_url')) {
     log.error('The request is missing the "Stream URL"')
     skippedIssues.add(issue)
@@ -126,6 +129,7 @@ async function removeStream(issue: Issue) {
       const found: Stream = streams.first((_stream: Stream) => _stream.url === link.trim())
       if (found) {
         found.removed = true
+        changedFiles.add(found.getFilepath())
         changed = true
         log.info(`The stream with the URL "${link}" has been removed from the playlists`)
       } else {
@@ -145,7 +149,7 @@ async function editStream(issue: Issue) {
   const log = createThread(issue, 'streams/edit')
   log.start()
 
-  const data = issue.data
+  const data = issue.dataSet
 
   const streamUrl = data.getString('stream_url')
 
@@ -157,13 +161,14 @@ async function editStream(issue: Issue) {
 
   const stream: Stream = streams.first((_stream: Stream) => _stream.url === streamUrl)
   if (!stream) {
-    log.error(`The stream with the URL "${streamUrl}" is already in the playlists`)
+    log.error(`The stream with the URL "${streamUrl}" is missing from the playlists`)
     skippedIssues.add(issue)
     return
   }
 
   cacheData()
 
+  const previousFilepath = stream.getFilepath()
   stream.updateWithIssue(data)
 
   stream.setGuides(apiData.guidesGroupedByStreamId.get(stream.getId()))
@@ -182,6 +187,8 @@ async function editStream(issue: Issue) {
 
   log.info('The stream description has been updated')
 
+  changedFiles.add(previousFilepath)
+  changedFiles.add(stream.getFilepath())
   processedIssues.add(issue)
 }
 
@@ -189,7 +196,7 @@ async function addStream(issue: Issue) {
   const log = createThread(issue, 'streams/add')
   log.start()
 
-  const data = issue.data
+  const data = issue.dataSet
   if (data.missing('stream_id')) {
     log.error('The request is missing the "Stream ID"')
     skippedIssues.add(issue)
@@ -261,8 +268,14 @@ async function addStream(issue: Issue) {
     user_agent: httpUserAgent,
     referrer: httpReferrer,
     quality,
-    label: data.getString('label') || ''
+    label: null
   })
+
+  const live247 = data.getBoolean('live_247')
+  const geoBlocked = data.getBoolean('geo_blocked')
+
+  stream.isNot247 = live247 === undefined ? false : !live247
+  stream.isGeoBlocked = geoBlocked === true
 
   stream.updateTitle().updateFilepath()
 
@@ -284,5 +297,6 @@ async function addStream(issue: Issue) {
 
   log.info('The stream has been added to playlists')
 
+  changedFiles.add(stream.getFilepath())
   processedIssues.add(issue)
 }

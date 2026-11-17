@@ -4,12 +4,12 @@ import { Stream, Playlist } from '../../models'
 import { Storage } from '@freearhey/storage-js'
 import { STREAMS_DIR } from '../../constants'
 import { PlaylistParser } from '../../core'
-import { getStreamInfo } from '../../utils'
+import { getStoragePath, getStreamInfo } from '../../utils'
 import { loadData, data } from '../../api'
 import cliProgress from 'cli-progress'
 import { eachLimit } from 'async'
-import path from 'node:path'
 import os from 'node:os'
+import { sortStreams } from '../../core/sortStreams'
 
 program
   .argument('[filepath...]', 'Path to file to format')
@@ -42,7 +42,7 @@ async function main() {
     storage: streamsStorage
   })
   let files = program.args.length ? program.args : await streamsStorage.list('**/*.m3u')
-  files = files.map((filepath: string) => path.basename(filepath))
+  files = files.map((filepath: string) => getStoragePath(filepath, STREAMS_DIR))
   let streams = await parser.parse(files)
   streams = streams.map((stream: Stream) => {
     stream.setGuides(data.guidesGroupedByStreamId.get(stream.getId()))
@@ -111,15 +111,7 @@ async function main() {
   progressBar.stop()
 
   logger.info('sorting links...')
-  streams = streams.sortBy(
-    [
-      (stream: Stream) => stream.title,
-      (stream: Stream) => stream.getVerticalResolution(),
-      (stream: Stream) => stream.label,
-      (stream: Stream) => stream.url
-    ],
-    ['asc', 'desc', 'asc', 'asc']
-  )
+  streams = sortStreams(streams)
 
   logger.info('saving...')
   const groupedStreams = streams.groupBy((stream: Stream) => stream.getFilepath())
@@ -128,7 +120,7 @@ async function main() {
 
     if (streams.isEmpty()) return
 
-    const playlist = new Playlist(streams, { public: false })
+    const playlist = new Playlist(streams, { public: false, raw: true })
     await streamsStorage.save(filepath, playlist.toString())
   }
 }

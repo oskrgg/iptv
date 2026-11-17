@@ -25,11 +25,14 @@ body:
       options:
         - Not loading
         - Constantly interrupts/lagging
+        - This channel has ceased broadcasting
+        - Black screen
         - Stuck at a single frame
         - I see visual artifacts
         - Shows looped video
         - No sound
         - Displays a message asking to renew subscription
+        - Wrong stream 
         - Other
     validations:
       required: true

@@ -15,6 +15,20 @@ import { orderBy } from 'es-toolkit'
 import path from 'node:path'
 import fs from 'node:fs'
 
+export function hasValidDomain(string: string): boolean {
+  const FORBIDDEN_DOMAINS = ['iptv-org.github.io']
+  try {
+    const parsedUrl = new URL(string)
+    const hostname = parsedUrl.hostname
+    const isForbidden = FORBIDDEN_DOMAINS.some(
+      domain => hostname === domain || hostname.endsWith(`.${domain}`)
+    )
+    return !isForbidden
+  } catch {
+    return false
+  }
+}
+
 export function isURI(string: string): boolean {
   try {
     const url = new URL(string)
@@ -24,10 +38,77 @@ export function isURI(string: string): boolean {
   }
 }
 
-export function normalizeURL(url: string): string {
-  const normalized = normalizeUrl(url, { stripWWW: false })
+// Sorts the query parameters like URLSearchParams.sort(), but keeps each one as written, so
+// escapes like %26, %3D and %2B are not decoded the way normalize-url's own sorting does
+function sortQueryParameters(url: string): string {
+  const queryStart = url.indexOf('?')
+  if (queryStart === -1) return url
+  const hashStart = url.indexOf('#', queryStart)
+  const queryEnd = hashStart === -1 ? url.length : hashStart
+  const getName = (param: string) => new URLSearchParams(param).keys().next().value ?? ''
+  const params = url
+    .slice(queryStart + 1, queryEnd)
+    .split('&')
+    .filter(Boolean)
+    .map(param => ({ param, name: getName(param) }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map(({ param }) => param)
+  const query = params.length ? `?${params.join('&')}` : ''
 
-  return decodeURIComponent(normalized).replace(/\s/g, '+').toString()
+  return url.slice(0, queryStart) + query + url.slice(queryEnd)
+}
+
+export function normalizeURL(url: string): string {
+  let normalized: string
+  try {
+    normalized = sortQueryParameters(
+      normalizeUrl(url, { stripWWW: false, sortQueryParameters: false })
+    )
+  } catch {
+    return url.replace(/\s/g, '+')
+  }
+
+  let decoded: string
+  try {
+    // decodeURI keeps escapes like %2F, %3F and %23, which would change the URL if decoded
+    decoded = decodeURI(normalized)
+  } catch {
+    decoded = normalized
+  }
+
+  // "+" means a space only in the query; in the path it is a plus sign
+  const queryStart = decoded.indexOf('?')
+  if (queryStart === -1) return decoded.replace(/\s/g, '%20')
+
+  return (
+    decoded.slice(0, queryStart).replace(/\s/g, '%20') +
+    decoded.slice(queryStart).replace(/\s/g, '+')
+  )
+}
+
+function isInsideDirectory(rootDir: string, target: string): boolean {
+  const relative = path.relative(rootDir, target)
+
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  )
+}
+
+export function getStoragePath(filepath: string, rootDir: string): string {
+  const root = path.resolve(rootDir)
+  const fromWorkspace = path.resolve(filepath)
+  const target = isInsideDirectory(root, fromWorkspace)
+    ? fromWorkspace
+    : path.resolve(root, filepath)
+
+  if (!isInsideDirectory(root, target)) {
+    throw new Error(`Filepath "${filepath}" is outside the storage directory`)
+  }
+
+  return path.relative(root, target).split(path.sep).join('/')
 }
 
 export function truncate(string: string, limit: number = 100) {
@@ -40,8 +121,8 @@ export function truncate(string: string, limit: number = 100) {
 type StreamInfo = {
   resolution: { width: number; height: number }
   bandwidth: number
-  frameRate: number
-  codecs: string
+  frameRate?: number
+  codecs?: string
 }
 
 export async function getStreamInfo(
@@ -103,6 +184,10 @@ export async function getStreamInfo(
 
   if (!data) return undefined
 
+  return parseStreamInfo(url, data)
+}
+
+export function parseStreamInfo(url: string, data: string): StreamInfo | undefined {
   let info: StreamInfo | undefined
 
   if (url.includes('.m3u8')) {
@@ -114,7 +199,7 @@ export async function getStreamInfo(
       if (playlist && playlist.isMasterPlaylist && playlist.variants.length) {
         const v = orderBy(playlist.variants, ['bandwidth'], ['desc'])[0]
 
-        if (v && v.resolution && v.frameRate && v.codecs) {
+        if (v && v.resolution) {
           info = {
             resolution: { width: v.resolution.width, height: v.resolution.height },
             bandwidth: v.bandwidth,
@@ -127,22 +212,26 @@ export async function getStreamInfo(
       // do nothing
     }
   } else if (url.includes('.mpd')) {
-    const manifest = parseManifest(data, {
-      manifestUri: url,
-      eventHandler: ({ type, message }) => console.log(`${type}: ${message}`)
-    })
+    try {
+      const manifest = parseManifest(data, {
+        manifestUri: url,
+        eventHandler: ({ type, message }) => console.log(`${type}: ${message}`)
+      })
 
-    const playlist = orderBy(manifest.playlists, [p => p.attributes.BANDWIDTH], ['desc'])[0]
+      const playlist = orderBy(manifest.playlists, [p => p.attributes.BANDWIDTH], ['desc'])[0]
 
-    if (playlist) {
-      const attr = playlist.attributes
+      if (playlist) {
+        const attr = playlist.attributes
 
-      info = {
-        resolution: { width: attr.RESOLUTION.width, height: attr.RESOLUTION.height },
-        bandwidth: attr.BANDWIDTH,
-        frameRate: attr['FRAME-RATE'],
-        codecs: attr.CODECS
+        info = {
+          resolution: { width: attr.RESOLUTION.width, height: attr.RESOLUTION.height },
+          bandwidth: attr.BANDWIDTH,
+          frameRate: attr['FRAME-RATE'],
+          codecs: attr.CODECS
+        }
       }
+    } catch {
+      // do nothing
     }
   }
 
@@ -174,16 +263,20 @@ export async function loadIssues(props?: { labels: string | string[] }) {
     })
   }
 
-  return new Collection(issues).map(parseIssue)
+  return new Collection(issues).map(({ number, body, labels }) => {
+    const dataSet = parseIssueBody(body)
+    return new Issue({ number, labels: labels.map(l => l.name), dataSet })
+  })
 }
 
-function parseIssue(issue: { number: number; body: string; labels: { name: string }[] }): Issue {
+export function parseIssueBody(body: string): DataSet {
   const FIELDS = new Dictionary({
     'Stream ID': 'stream_id',
     'Channel ID': 'channel_id',
     'Feed ID': 'feed_id',
     'Stream URL': 'stream_url',
-    Label: 'label',
+    'Live 24/7': 'live_247',
+    'Geo-blocked': 'geo_blocked',
     Quality: 'quality',
     'HTTP User-Agent': 'http_user_agent',
     'HTTP User Agent': 'http_user_agent',
@@ -193,7 +286,7 @@ function parseIssue(issue: { number: number; body: string; labels: { name: strin
     Notes: 'notes'
   })
 
-  const fields = typeof issue.body === 'string' ? issue.body.split('###') : []
+  const fields = typeof body === 'string' ? body.split('###') : []
 
   const data = new Dictionary<string>()
   fields.forEach((field: string) => {
@@ -206,16 +299,23 @@ function parseIssue(issue: { number: number; body: string; labels: { name: strin
     if (!_label || !_value) return data
 
     const id = FIELDS.get(_label)
-    const value: string = _value === '_No response_' || _value === 'None' ? '' : _value
+    let value: string = ''
+    if (_value === '_No response_' || _value === 'None') {
+      value = ''
+    } else if (_value === 'Yes') {
+      value = 'TRUE'
+    } else if (_value === 'No') {
+      value = 'FALSE'
+    } else {
+      value = _value
+    }
 
     if (!id) return
 
     data.set(id, value)
   })
 
-  const labels = issue.labels.map(label => label.name)
-
-  return new Issue({ number: issue.number, labels, data: new DataSet(data) })
+  return new DataSet(data)
 }
 
 export async function loadDiscussions() {
@@ -229,9 +329,9 @@ export async function loadDiscussions() {
     })
 
     const query = `
-      query ($owner: String!, $repo: String!, $cursor: String) {
+      query ($owner: String!, $repo: String!, $cursor: String, $orderBy: DiscussionOrder) {
         repository(owner: $owner, name: $repo) {
-          discussions(first: 100, after: $cursor, states: OPEN) {
+          discussions(first: 100, after: $cursor, states: OPEN, orderBy: $orderBy) {
             nodes {
               number
               body
@@ -250,7 +350,11 @@ export async function loadDiscussions() {
 
     const result = await octokit.graphql.paginate(query, {
       owner: 'iptv-org',
-      repo: 'iptv'
+      repo: 'iptv',
+      orderBy: {
+        field: 'CREATED_AT',
+        direction: 'ASC'
+      }
     })
 
     discussions = result.repository.discussions.nodes

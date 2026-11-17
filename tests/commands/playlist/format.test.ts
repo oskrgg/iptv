@@ -1,3 +1,4 @@
+import { describe, beforeEach, it, expect } from 'vitest'
 import { pathToFileURL } from 'node:url'
 import { execSync } from 'child_process'
 import * as fs from 'fs-extra'
@@ -29,6 +30,46 @@ describe('playlist:format', () => {
         content(`tests/__data__/expected/playlist_format/${filepath}`)
       )
     })
+  })
+
+  it('formats playlists in nested directories', () => {
+    const cmd = `${ENV_VAR} npm run playlist:format`
+    execSync(cmd, { encoding: 'utf8' })
+
+    const output = content('tests/__data__/output/streams/nested/nested.m3u')
+    expect(output).toContain(',Alpha (720p)')
+    expect(output).toContain(',Zulu (720p)')
+    expect(output.indexOf(',Alpha (720p)')).toBeLessThan(output.indexOf(',Zulu (720p)'))
+  })
+
+  it('keeps links with malformed percent escapes', () => {
+    fs.emptyDirSync('tests/__data__/output')
+    fs.copySync('tests/__data__/input/playlist_normalize', 'tests/__data__/output/streams')
+
+    const cmd =
+      'cross-env STREAMS_DIR=tests/__data__/output/streams DATA_DIR=tests/__data__/input/data npm run playlist:format'
+    execSync(cmd, { encoding: 'utf8' })
+
+    expect(content('tests/__data__/output/streams/bad_encoding.m3u')).toContain(
+      'http://example.com/a%ZZ'
+    )
+  })
+
+  it('keeps percent escapes whose decoding would change the link', () => {
+    fs.emptyDirSync('tests/__data__/output')
+    fs.copySync('tests/__data__/input/playlist_normalize', 'tests/__data__/output/streams')
+
+    const cmd =
+      'cross-env STREAMS_DIR=tests/__data__/output/streams DATA_DIR=tests/__data__/input/data npm run playlist:format'
+    execSync(cmd, { encoding: 'utf8' })
+
+    const output = content('tests/__data__/output/streams/reserved_escapes.m3u')
+    expect(output).toContain('http://example.com/TVP%20Wilno%20HD/index.m3u8')
+    expect(output).toContain('http://example.com/a%2Fb/index.m3u8')
+    expect(output).toContain('http://example.com/index.m3u8?id=1%232')
+    expect(output).toContain(
+      'http://example.com/index.m3u8?name=TV%2B&url=http%3A%2F%2Fexample.org%2Fa.m3u8%3Fk%3D1%26exp%3D2'
+    )
   })
 })
 

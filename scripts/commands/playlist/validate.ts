@@ -1,15 +1,20 @@
 import { Logger, Collection, Dictionary } from '@freearhey/core'
+import { OptionValues, program } from 'commander'
 import { Storage } from '@freearhey/storage-js'
 import { PlaylistParser } from '../../core'
 import { data, loadData } from '../../api'
 import { ROOT_DIR } from '../../constants'
-import { isURI } from '../../utils.js'
+import { getStoragePath, isURI } from '../../utils.js'
 import { Stream } from '../../models'
 import * as sdk from '@iptv-org/sdk'
-import { program } from 'commander'
 import chalk from 'chalk'
 
-program.argument('[filepath...]', 'Path to file to validate').parse(process.argv)
+program
+  .argument('[filepath...]', 'Path to file to validate')
+  .option('--log-level <level>', 'Specify the minimum log level (error or warning)')
+  .parse(process.argv)
+
+const options: OptionValues = program.opts()
 
 type LogItem = {
   type: string
@@ -29,7 +34,7 @@ async function main() {
 
   logger.info('loading streams...')
   const selectedFiles = program.args.length
-    ? program.args
+    ? program.args.map((filepath: string) => getStoragePath(filepath, ROOT_DIR))
     : await rootStorage.list('streams/**/*.m3u')
   const selectedStreams = await parser.parse(selectedFiles)
   logger.info(`found ${selectedStreams.count()} streams`)
@@ -51,9 +56,15 @@ async function main() {
     const streams = streamsGroupedByFilepath.get(filepath)
     if (!streams) continue
 
-    const log = new Collection<LogItem>()
+    let log = new Collection<LogItem>()
     streams.forEach((stream: Stream) => {
-      if (stream.channel) {
+      if (!stream.channel) {
+        log.add({
+          type: 'warning',
+          line: stream.getLine(),
+          message: `"${stream.url}" is missing a channel ID`
+        })
+      } else {
         const channel = data.channelsKeyById.get(stream.channel)
         if (!channel) {
           log.add({
@@ -61,6 +72,23 @@ async function main() {
             line: stream.getLine(),
             message: `"${stream.tvgId}" is not in the database`
           })
+        }
+
+        if (!stream.feed) {
+          log.add({
+            type: 'warning',
+            line: stream.getLine(),
+            message: `"${stream.url}" is missing a feed ID`
+          })
+        } else {
+          const feed = data.feedsKeyByStreamId.get(stream.getId())
+          if (!feed) {
+            log.add({
+              type: 'warning',
+              line: stream.getLine(),
+              message: `There is no feed with the ID "${stream.feed}" in the database for the "${stream.channel}" channel`
+            })
+          }
         }
       }
 
@@ -106,6 +134,12 @@ async function main() {
         })
       }
     })
+
+    if (options.logLevel === 'error') {
+      log = log.filter(i => ['error'].includes(i.type))
+    } else if (options.logLevel === 'warning') {
+      log = log.filter(i => ['warning', 'error'].includes(i.type))
+    }
 
     if (log.isNotEmpty()) {
       console.log(`\n${chalk.underline(filepath)}`)
