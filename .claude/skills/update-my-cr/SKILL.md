@@ -14,6 +14,7 @@ The user's TV loads https://oskrgg.github.io/iptv/streams/my-cr.m3u. GitHub Page
 - **Never commit or push.** Edit the files, then tell the user what changed. The user commits and pushes themselves.
 - Keep the channel list the user chose. Add or remove channels only when asked, except for the WANTED channels below.
 - Keep `~/Downloads/my-cr.m3u` identical to `streams/my-cr.m3u`.
+- Channel names show only the resolution, for example `Canal 4 (720p)`. `refresh.py` strips `[Geo-blocked]`, `[Not 24/7]` and any other `[...]` tag. The user doesn't want them; if a channel works it works, and if not it gets dropped.
 - Movie channels: suggest only free, ad-supported channels on official hosts (amagi.tv, otteravision.com, cloudfront or akamai FAST feeds). Never add paid channels (HBO, Cinemax, AXN, Cine Sony, Cinecanal, Golden, De Película, Claro Cinema, Star Channel and the like) carried on bare-IP rebroadcasts.
 
 ## Steps
@@ -40,6 +41,6 @@ These were dead on 2026-11-17 and get re-added automatically when upstream has w
 
 ## Reading test results
 
-- The Mac's connection is in Costa Rica, so "[Geo-blocked]" links normally play for the user.
+- The Mac's connection is in Costa Rica, so links tagged "[Geo-blocked]" upstream normally play for the user. The tag is stripped from the output.
 - `nodename nor servname` means the host no longer exists. Confirm with `dig +short <host> @1.1.1.1`.
 - "Not 24/7" channels can be off-air at times, so a single failure may be temporary. The retry covers short glitches.

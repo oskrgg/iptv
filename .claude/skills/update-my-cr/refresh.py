@@ -42,6 +42,8 @@ for e,f in zip(cands,futs):
     if r.startswith('OK'): keep.append(e)
 alpha=lambda e:[int(t) if t.isdigit() else t for t in re.split(r'(\d+)',name(e).split(' (')[0].lstrip('¡¿').lower())]
 keep.sort(key=alpha)
-open(sys.argv[3],'w',encoding='utf-8').write("#EXTM3U\n"+"".join("\n".join(e)+"\n" for e in keep))
+# user wants only the resolution in names: drop [Geo-blocked], [Not 24/7] and any other [..] tag
+untag=lambda l:re.sub(r'\s*\[[^\]]*\]','',l) if l.startswith('#EXTINF') else l
+open(sys.argv[3],'w',encoding='utf-8').write("#EXTM3U\n"+"".join("\n".join(map(untag,e))+"\n" for e in keep))
 print(f"\nkept {len(keep)} of {len(cands)} links; before: {len(mine)}")
 sys.stdout.flush(); os._exit(0)
