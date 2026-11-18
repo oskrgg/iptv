@@ -37,7 +37,19 @@ To test any playlist on its own: `python3 -I $K/check.py <file.m3u>`.
 
 ## WANTED channels
 
-These were dead on 2026-11-17 and get re-added automatically when upstream has working links for them: Canal 2, Canal 6, Canal 3 KMK TV, Canal 9, Canal 17 TV Nosara, Cartago Medios TV and Tigo Sports. The list is the `WANTED` variable in `refresh.py`. Remove a channel from it if the user no longer wants it.
+These were dead on 2026-11-17 and get re-added automatically when upstream has working links for them. Canal 2 and Canal 6 are back, with links from Repretel's site; see below. Still missing: Canal 3 KMK TV, Canal 9, Canal 17 TV Nosara, Cartago Medios TV and Tigo Sports. The list is the `WANTED` variable in `refresh.py`. Remove a channel from it if the user no longer wants it.
+
+## Repretel channels (Canal 2, 4, 6, 11)
+
+The links iptv-org has for these were dead on 2026-11-17. The working links came from Repretel's own live pages, which embed the stream address in their HTML:
+
+```sh
+for p in envivo-canal2 envivo-canal4 envivo-canal6 envivo-canal-11; do
+  curl -s -A 'Mozilla/5.0' "https://www.repretel.com/$p/" | grep -oE 'https?:\\?/\\?/[^"'"'"' ]*\.m3u8' | sed 's#\\##g' | sort -u
+done
+```
+
+Canal 11's page is `envivo-canal-11`, with a dash. They play without a referer and top out at 720p. If a Repretel channel dies on a refresh, re-run this to get its current link before dropping it.
 
 ## Reading test results
 
