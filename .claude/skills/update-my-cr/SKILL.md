@@ -13,7 +13,6 @@ The user's TV loads https://oskrgg.github.io/iptv/streams/my-cr.m3u. GitHub Page
 
 - **Never commit or push.** Edit the files, then tell the user what changed. The user commits and pushes themselves.
 - Keep the channel list the user chose. Add or remove channels only when asked, except for the WANTED channels below.
-- Keep `~/Downloads/my-cr.m3u` identical to `streams/my-cr.m3u`.
 - Channel names show only the resolution, for example `Canal 4 (720p)`. `refresh.py` strips `[Geo-blocked]`, `[Not 24/7]` and any other `[...]` tag. The user doesn't want them; if a channel works it works, and if not it gets dropped.
 - Movie channels: suggest only free, ad-supported channels on official hosts (amagi.tv, otteravision.com, cloudfront or akamai FAST feeds). Never add paid channels (HBO, Cinemax, AXN, Cine Sony, Cinecanal, Golden, De Película, Claro Cinema, Star Channel and the like) carried on bare-IP rebroadcasts.
 
@@ -30,7 +29,7 @@ Run these from the repo root. `$S` is the session scratchpad directory and `$K` 
    python3 -I $K/refresh.py streams/my-cr.m3u $S/cr.m3u $S/my-cr.new.m3u
    ```
    For each channel already in the list, the script merges in the upstream links. It also re-adds WANTED channels when upstream has them. It tests every link by downloading a real video chunk, retrying failures twice, and keeps only working links. The output is sorted alphabetically, with numbers in number order. Channels that are not Costa Rican keep their existing links.
-3. Show the user what changed: links added, links dropped, and channels that came back or disappeared. Then copy the output over `streams/my-cr.m3u` and `~/Downloads/my-cr.m3u`.
+3. Show the user what changed: links added, links dropped, and channels that came back or disappeared. Then copy the output over `streams/my-cr.m3u`.
 4. Remind the user to commit and push so the TV picks up the change, then to refresh the playlist on the TV.
 
 To test any playlist on its own: `python3 -I $K/check.py <file.m3u>`.
